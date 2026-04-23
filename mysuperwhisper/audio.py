@@ -290,6 +290,12 @@ def start_stream(device_index=None):
         _stream.start()
 
 
+def ensure_stream():
+    """Ensure the audio input stream is open."""
+    if _stream is None:
+        start_stream()
+
+
 def stop_stream():
     """Stop the audio input stream."""
     global _stream
@@ -303,14 +309,22 @@ def stop_stream():
 
 def restart_stream():
     """Restart the audio stream."""
-    stop_stream()
-    start_stream()
+    if _stream:
+        stop_stream()
+        start_stream()
+
+
+def release_stream_if_idle():
+    """Release the microphone when not recording and not testing."""
+    if not is_recording and not _is_testing_mic:
+        stop_stream()
 
 
 def start_recording():
     """Start recording audio."""
     global is_recording, audio_buffer
 
+    ensure_stream()
     log("Recording started... (Double Ctrl to stop)")
     audio_buffer = []  # Reset buffer
     is_recording = True
@@ -327,6 +341,7 @@ def stop_recording():
 
     log("Recording stopped.")
     is_recording = False
+    release_stream_if_idle()
 
     if not audio_buffer:
         log("No audio recorded.", "warning")
@@ -377,6 +392,7 @@ def start_mic_test(callback=None):
         return
         
     _is_testing_mic = True
+    ensure_stream()
     if callback:
         _test_callback = callback
     
@@ -394,6 +410,7 @@ def stop_mic_test():
     """Stop microphone test mode."""
     global _is_testing_mic
     _is_testing_mic = False
+    release_stream_if_idle()
 
 
 def restart_mic_test():

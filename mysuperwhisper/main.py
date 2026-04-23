@@ -298,9 +298,6 @@ def startup_worker():
     processing_thread = threading.Thread(target=audio_processing_loop, daemon=True)
     processing_thread.start()
 
-    # Start audio stream (uses PulseAudio default source)
-    audio.start_stream()
-
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
     hotkeys_enabled = session_type != "wayland" or args.enable_pynput_hotkeys
 
