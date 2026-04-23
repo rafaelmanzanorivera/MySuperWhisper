@@ -4,12 +4,50 @@ Handles model loading and speech-to-text conversion.
 """
 
 import gc
+from .cuda_runtime import configure_cuda_runtime, get_cuda_runtime_state
+
+configure_cuda_runtime()
+
 from faster_whisper import WhisperModel
 from .config import log, config
 
 # Global model instance
 _model = None
 _is_cpu_mode = False
+_cuda_runtime_logged = False
+
+
+def _create_model(size, prefer_gpu=True):
+    """Create a Whisper model, preferring GPU with CPU fallback."""
+    global _is_cpu_mode
+
+    if prefer_gpu:
+        try:
+            model = WhisperModel(size, device="cuda", compute_type="int8")
+            _is_cpu_mode = False
+            log("Model loaded successfully on GPU (INT8).")
+            return model
+        except Exception as e:
+            log(f"GPU error: {e}", "warning")
+            log("Falling back to CPU (INT8)...", "warning")
+
+    model = WhisperModel(size, device="cpu", compute_type="int8")
+    _is_cpu_mode = True
+    log("Model loaded on CPU (degraded mode).", "warning")
+    return model
+
+
+def _reload_current_model_on_cpu():
+    """Rebuild the current model on CPU after a runtime CUDA failure."""
+    global _model, _is_cpu_mode
+
+    size = config.model_size
+    log(f"Reloading model '{size}' on CPU after CUDA runtime failure...", "warning")
+    if _model:
+        del _model
+        gc.collect()
+    _model = WhisperModel(size, device="cpu", compute_type="int8")
+    _is_cpu_mode = True
 
 
 def load_model(model_size=None):
@@ -26,23 +64,22 @@ def load_model(model_size=None):
     Returns:
         bool: True if GPU mode, False if CPU mode
     """
-    global _model, _is_cpu_mode
+    global _model, _is_cpu_mode, _cuda_runtime_logged
 
     size = model_size or config.model_size
     log(f"Loading Faster-Whisper model '{size}'...")
 
-    try:
-        _model = WhisperModel(size, device="cuda", compute_type="int8")
-        _is_cpu_mode = False
-        log("Model loaded successfully on GPU (INT8).")
-        return True
-    except Exception as e:
-        log(f"GPU error: {e}", "warning")
-        log("Falling back to CPU (INT8)...", "warning")
-        _model = WhisperModel(size, device="cpu", compute_type="int8")
-        _is_cpu_mode = True
-        log("Model loaded on CPU (degraded mode).", "warning")
-        return False
+    if not _cuda_runtime_logged:
+        runtime_state = get_cuda_runtime_state()
+        if runtime_state["library_dirs"]:
+            log(
+                "Using venv CUDA runtime libraries from: "
+                + ", ".join(runtime_state["library_dirs"])
+            )
+        _cuda_runtime_logged = True
+
+    _model = _create_model(size, prefer_gpu=True)
+    return not _is_cpu_mode
 
 
 def reload_model(new_model_size):
@@ -65,19 +102,7 @@ def reload_model(new_model_size):
             del _model
             gc.collect()
 
-        # Try GPU first
-        try:
-            new_model = WhisperModel(new_model_size, device="cuda", compute_type="int8")
-            _is_cpu_mode = False
-            log(f"New model '{new_model_size}' loaded on GPU.")
-        except Exception as gpu_err:
-            log(f"GPU error: {gpu_err}", "warning")
-            log("Falling back to CPU (INT8)...", "warning")
-            new_model = WhisperModel(new_model_size, device="cpu", compute_type="int8")
-            _is_cpu_mode = True
-            log(f"New model '{new_model_size}' loaded on CPU (degraded mode).", "warning")
-
-        _model = new_model
+        _model = _create_model(new_model_size, prefer_gpu=True)
         config.model_size = new_model_size
         return True
 
@@ -86,16 +111,10 @@ def reload_model(new_model_size):
         log("Attempting to reload previous model 'medium'...", "warning")
 
         try:
-            _model = WhisperModel("medium", device="cuda", compute_type="int8")
+            _model = _create_model("medium", prefer_gpu=True)
             config.model_size = "medium"
-            _is_cpu_mode = False
-        except:
-            try:
-                _model = WhisperModel("medium", device="cpu", compute_type="int8")
-                config.model_size = "medium"
-                _is_cpu_mode = True
-            except:
-                pass
+        except Exception:
+            pass
 
         return False
 
@@ -128,6 +147,18 @@ def transcribe(audio_data, language=None, task="transcribe"):
         return " ".join(full_text).strip()
 
     except Exception as e:
+        error_message = str(e)
+        if not _is_cpu_mode and ("libcublas" in error_message or "cuda" in error_message.lower()):
+            log(f"CUDA runtime failure during transcription: {e}", "warning")
+            _reload_current_model_on_cpu()
+            segments, info = _model.transcribe(audio_data, beam_size=5, language=language, task=task)
+
+            full_text = []
+            for segment in segments:
+                full_text.append(segment.text)
+
+            return " ".join(full_text).strip()
+
         log(f"Transcription error: {e}", "error")
         raise
 

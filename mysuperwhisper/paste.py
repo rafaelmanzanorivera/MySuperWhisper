@@ -1,18 +1,27 @@
 """
 Text pasting functionality for MySuperWhisper.
-Uses clipboard paste (Ctrl+V) for speed and reliability.
+Uses direct text injection when available, with clipboard paste fallback.
 """
 
 import os
 import subprocess
 import time
+import shutil
 import pyperclip
 from .config import log
+
+
+_YDOTOOL_KEY_DELAY_MS = 15
 
 
 def detect_session_type():
     """Detect if running on Wayland or X11."""
     return os.environ.get("XDG_SESSION_TYPE", "").lower()
+
+
+def _has_command(name):
+    """Check whether a command is available."""
+    return shutil.which(name) is not None
 
 
 def _is_terminal(session_type):
@@ -65,6 +74,14 @@ def paste_text(text, press_enter=False):
         press_enter: If True, press Enter after pasting
     """
     session_type = detect_session_type()
+
+    if _has_command("ydotool"):
+        if _inject_text_with_ydotool(text):
+            if press_enter:
+                time.sleep(0.05)
+                _press_key("Return", session_type)
+            return
+        log("ydotool text injection failed, falling back to clipboard paste", "warning")
     
     # Check if we are in a terminal
     if _is_terminal(session_type):
@@ -88,6 +105,31 @@ def paste_text(text, press_enter=False):
         _press_key("Return", session_type)
 
 
+def _inject_text_with_ydotool(text):
+    """Inject text using ydotool, which works reliably on Wayland."""
+    try:
+        result = subprocess.run(
+            ["ydotool", "type", "--key-delay", str(_YDOTOOL_KEY_DELAY_MS), text],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        if result.returncode == 0:
+            return True
+
+        stderr = result.stderr.strip() or "unknown error"
+        log(f"ydotool injection failed: {stderr}", "warning")
+        return False
+    except FileNotFoundError:
+        return False
+    except subprocess.TimeoutExpired:
+        log("ydotool injection timed out", "warning")
+        return False
+    except Exception as e:
+        log(f"ydotool injection error: {e}", "warning")
+        return False
+
+
 def _paste_clipboard(text, session_type, force_ctrl_shift_v=False):
     """Paste text using clipboard (Ctrl+V or Ctrl+Shift+V)."""
     # Copy to clipboard
@@ -97,11 +139,17 @@ def _paste_clipboard(text, session_type, force_ctrl_shift_v=False):
     try:
         if session_type == "wayland":
             if force_ctrl_shift_v:
-                # Ctrl+Shift+V on Wayland
-                subprocess.run(["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"])
+                if _has_command("ydotool"):
+                    subprocess.run(["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"])
+                else:
+                    # Ctrl+Shift+V on Wayland
+                    subprocess.run(["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"])
             else:
-                # Ctrl+V on Wayland
-                subprocess.run(["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"])
+                if _has_command("ydotool"):
+                    subprocess.run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"])
+                else:
+                    # Ctrl+V on Wayland
+                    subprocess.run(["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"])
         else:
             key_combo = "ctrl+shift+v" if force_ctrl_shift_v else "ctrl+v"
             # X11
@@ -129,6 +177,14 @@ def _paste_with_newlines(text, session_type):
 def _press_key(key, session_type):
     """Press a key or key combination."""
     try:
+        if _has_command("ydotool"):
+            if key == "Return":
+                subprocess.run(["ydotool", "key", "28:1", "28:0"])
+                return
+            if key == "shift+Return":
+                subprocess.run(["ydotool", "key", "42:1", "28:1", "28:0", "42:0"])
+                return
+
         if session_type == "wayland":
             if '+' in key:
                 # Handle modifier+key combo (e.g., "shift+Return")

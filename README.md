@@ -19,11 +19,17 @@
 
 ---
 
-MySuperWhisper is a Linux desktop application that provides **global voice-to-text transcription** using OpenAI's Whisper model. Simply press **Double Ctrl** anywhere on your system to start recording, speak, and press **Double Ctrl** again - your speech is transcribed and automatically typed into any application.
+MySuperWhisper is a Linux desktop application that provides **global voice-to-text transcription** using OpenAI's Whisper model. On X11, you can use the built-in global hotkey listener. On GNOME Wayland, the reliable path is to keep the app running in the user session and trigger it through native GNOME custom shortcuts.
+
+This fork is focused on making the GNOME Wayland path practical:
+- tray stays optional instead of being required for startup
+- global shortcuts are driven by GNOME custom shortcuts instead of `pynput`
+- text injection prefers `ydotool`
+- CUDA 12 user-space libraries can live inside the project venv
 
 ## Features
 
-- 🎤 **Global Hotkey** - Fully configurable shortcut works in any application
+- 🎤 **Global Hotkey** - Built-in listener on X11, native desktop shortcuts on GNOME Wayland
 - 🚀 **GPU Acceleration** - Uses CUDA with INT8 quantization for fast transcription
 - 🧠 **Multiple Models** - Choose from tiny to large-v3 based on your needs
 - 🗣️ **Voice Commands** - Say "new line" or "enter" to control text formatting
@@ -59,7 +65,10 @@ chmod +x install.sh
 # System dependencies
 sudo apt install python3-venv python3-pip xdotool libnotify-bin pulseaudio-utils
 
-# For Wayland support (optional)
+# For reliable Linux text injection
+sudo apt install ydotool
+
+# Optional clipboard-style Wayland fallback
 sudo apt install wtype
 
 # Python environment
@@ -67,6 +76,16 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+### CUDA Runtime In The Venv
+
+If your NVIDIA driver is installed but `faster-whisper` fails on missing `libcublas.so.12`, install the CUDA 12 user-space runtime packages into the project venv:
+
+```bash
+./venv/bin/pip install 'nvidia-cublas-cu12' 'nvidia-cudnn-cu12==9.*'
+```
+
+MySuperWhisper now auto-detects and preloads those venv-local CUDA libraries on startup, so this does not require changing your system-wide CUDA installation or exporting `LD_LIBRARY_PATH` manually.
 
 ## Usage
 
@@ -78,11 +97,60 @@ pip install -r requirements.txt
 
 # Or with the legacy script
 ./venv/bin/python mysuperwhisper.py
+
+# Or use the repo wrapper (works from any current directory)
+/home/rafa/tools/MySuperWhisper/scripts/run-mysuperwhisper
 ```
+
+### GNOME Wayland
+
+On GNOME Wayland, `pynput`'s global keyboard listener is not reliable and its `uinput` backend may require root-level keyboard layout access. The recommended setup is:
+
+```bash
+# Start the main app in the user session
+/home/rafa/tools/MySuperWhisper/scripts/run-mysuperwhisper --no-tray
+```
+
+Then create GNOME custom shortcuts that call the running instance:
+
+```bash
+/home/rafa/tools/MySuperWhisper/scripts/mysuperwhisper-toggle
+/home/rafa/tools/MySuperWhisper/scripts/mysuperwhisper-history
+```
+
+This keeps audio capture, transcription, text injection, config, and logs in the normal user session, without running the full app as root.
+
+Do not use `.../venv/bin/python -m mysuperwhisper ...` directly in GNOME shortcuts unless you also force the working directory to the repo. GNOME custom shortcuts usually launch from another directory, so the wrapper scripts above are the reliable option.
+
+If your tray setup is working under GNOME Wayland, you can omit `--no-tray`. If the session bus or tray integration is unavailable, MySuperWhisper now logs the reason and keeps running headless instead of crashing.
+
+### Recommended GNOME Wayland Setup
+
+1. Start the app:
+
+```bash
+/home/rafa/tools/MySuperWhisper/scripts/run-mysuperwhisper
+```
+
+2. Add a GNOME custom shortcut for record start/stop:
+
+```bash
+/home/rafa/tools/MySuperWhisper/scripts/mysuperwhisper-toggle
+```
+
+3. Add a GNOME custom shortcut for history:
+
+```bash
+/home/rafa/tools/MySuperWhisper/scripts/mysuperwhisper-history
+```
+
+4. Keep `ydotool` installed for text injection.
+
+This is the main supported Wayland workflow for this fork.
 
 ### Keyboard Shortcuts
 
-**Default shortcuts:**
+**Default shortcuts on X11:**
 
 | Shortcut | Action |
 |----------|--------|
@@ -96,6 +164,8 @@ Keyboard shortcuts are **fully configurable** via the system tray menu under "�
 3. Click **OK** to validate
 
 You can use **any key or combination**: modifier keys (Ctrl, Alt, Shift), function keys (F1-F12), regular keys (A-Z, 0-9), or combinations like Ctrl+A, Alt+Space, Shift+F1, etc.
+
+On GNOME Wayland, use the command-based shortcuts shown above instead of the built-in `pynput` listener.
 
 ### System Tray
 
@@ -185,6 +255,12 @@ This example configures:
 
 **Tip:** You can configure keyboard shortcuts easily through the system tray menu under "⌨️ Keyboard Shortcuts" — a detection popup lets you set shortcuts by simply pressing them, no manual editing needed.
 
+When the process is launched with `sudo`, MySuperWhisper now prefers the invoking user's XDG directories if `SUDO_USER` is present. You can also override the storage roots explicitly with:
+
+- `MYSUPERWHISPER_HOME`
+- `MYSUPERWHISPER_CONFIG_HOME`
+- `MYSUPERWHISPER_DATA_HOME`
+
 ### Model Sizes
 
 | Model | VRAM | Speed | Accuracy |
@@ -202,6 +278,7 @@ This example configures:
 | Configuration | `~/.config/mysuperwhisper/config.json` |
 | Logs | `~/.local/share/mysuperwhisper/logs/` |
 | History | `~/.local/share/mysuperwhisper/history.json` |
+| Runtime socket/lock | `$XDG_RUNTIME_DIR/mysuperwhisper/` or `/tmp/mysuperwhisper-UID/` |
 
 ## Project Structure
 
@@ -220,6 +297,7 @@ MySuperWhisper/
 │   ├── keyboard.py          # Hotkey handling
 │   ├── history.py           # History management
 │   └── tray.py              # System tray
+├── scripts/                 # Wrapper launchers for desktop/shortcut use
 ├── install.sh               # Installation script
 ├── requirements.txt         # Python dependencies
 ├── LICENSE                  # MIT License
@@ -245,11 +323,23 @@ MySuperWhisper/
 
 ### Text not typed in some applications
 - Some applications may not accept simulated keyboard input
+- On Linux, `ydotool` is the preferred text injection backend and works better on Wayland than clipboard-driven paste
 - **Workaround:** The transcribed text is **always copied to your clipboard**. If automated typing fails, you can simply paste it manually (Ctrl+V).
+
+### CUDA loads but transcription fails on missing `libcublas.so.12`
+- Install the venv-local CUDA runtime:
+  `./venv/bin/pip install 'nvidia-cublas-cu12' 'nvidia-cudnn-cu12==9.*'`
+- Restart the app
+- This fork auto-loads those libraries from the venv when present
 
 ### New line doesn't work in terminal
 - This should be handled automatically now (auto-switch to Ctrl+Shift+V)
 - If not, try pasting manually using Ctrl+Shift+V
+
+### GNOME Wayland hotkeys do nothing
+- Start the main app once with `/home/rafa/tools/MySuperWhisper/scripts/run-mysuperwhisper --no-tray`
+- Add GNOME custom shortcuts for `/home/rafa/tools/MySuperWhisper/scripts/mysuperwhisper-toggle` and `/home/rafa/tools/MySuperWhisper/scripts/mysuperwhisper-history`
+- Only use `--enable-pynput-hotkeys` on Wayland if you intentionally want to experiment with the old listener behavior
 
 ## Dependencies
 

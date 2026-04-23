@@ -6,20 +6,77 @@ Handles loading/saving settings and XDG directory setup.
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import os
+import pwd
+import tempfile
 from pathlib import Path
 import sys
 
+APP_NAME = "mysuperwhisper"
+
+
+def _resolve_effective_user():
+    """Resolve the user whose XDG directories should be used."""
+    sudo_user = os.environ.get("SUDO_USER")
+    if os.geteuid() == 0 and sudo_user and sudo_user != "root":
+        try:
+            entry = pwd.getpwnam(sudo_user)
+            return sudo_user, entry.pw_uid, Path(entry.pw_dir)
+        except KeyError:
+            pass
+
+    home = Path.home()
+    return os.environ.get("USER", str(os.geteuid())), os.geteuid(), home
+
+
+EFFECTIVE_USER, EFFECTIVE_UID, EFFECTIVE_HOME = _resolve_effective_user()
+
+
+def _resolve_app_dirs():
+    """Resolve config, data, and runtime directories."""
+    home_override = os.environ.get("MYSUPERWHISPER_HOME")
+    config_override = os.environ.get("MYSUPERWHISPER_CONFIG_HOME")
+    data_override = os.environ.get("MYSUPERWHISPER_DATA_HOME")
+    root_via_sudo = os.geteuid() == 0 and os.environ.get("SUDO_USER")
+
+    if home_override:
+        base_home = Path(home_override).expanduser()
+        config_base = base_home / ".config"
+        data_base = base_home / ".local" / "share"
+    else:
+        config_env = os.environ.get("XDG_CONFIG_HOME") if not root_via_sudo else None
+        data_env = os.environ.get("XDG_DATA_HOME") if not root_via_sudo else None
+        config_base = Path(config_env).expanduser() if config_env else EFFECTIVE_HOME / ".config"
+        data_base = Path(data_env).expanduser() if data_env else EFFECTIVE_HOME / ".local" / "share"
+
+    config_root = Path(config_override).expanduser() if config_override else config_base / APP_NAME
+    data_root = Path(data_override).expanduser() if data_override else data_base / APP_NAME
+
+    runtime_env = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_env and os.access(runtime_env, os.W_OK):
+        runtime_root = Path(runtime_env) / APP_NAME
+    else:
+        runtime_root = Path(tempfile.gettempdir()) / f"{APP_NAME}-{EFFECTIVE_UID}"
+
+    return config_root, data_root, runtime_root
+
+
 # --- XDG Standard Directories ---
-CONFIG_DIR = Path.home() / ".config" / "mysuperwhisper"
-DATA_DIR = Path.home() / ".local" / "share" / "mysuperwhisper"
+CONFIG_DIR, DATA_DIR, RUNTIME_DIR = _resolve_app_dirs()
 LOG_DIR = DATA_DIR / "logs"
 HISTORY_FILE = DATA_DIR / "history.json"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+LOCK_FILE = RUNTIME_DIR / "instance.lock"
+CONTROL_SOCKET = RUNTIME_DIR / "control.sock"
 
-# Create directories if they don't exist
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+def _ensure_dir(path):
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+for _path in (CONFIG_DIR, DATA_DIR, LOG_DIR, RUNTIME_DIR):
+    _ensure_dir(_path)
 
 # --- Logging Configuration ---
 LOG_FILE = LOG_DIR / "mysuperwhisper.log"
@@ -27,12 +84,24 @@ LOG_FILE = LOG_DIR / "mysuperwhisper.log"
 # Main logger
 logger = logging.getLogger("MySuperWhisper")
 logger.setLevel(logging.DEBUG)
+logger.handlers.clear()
+logger.propagate = False
 
 # Log format
 log_format = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
 # File handler (rotation: 5 files of 1MB max)
-file_handler = RotatingFileHandler(LOG_FILE, maxBytes=1*1024*1024, backupCount=5, encoding='utf-8')
+try:
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=1 * 1024 * 1024, backupCount=5, encoding='utf-8'
+    )
+except OSError:
+    fallback_log_dir = _ensure_dir(RUNTIME_DIR / "logs")
+    LOG_FILE = fallback_log_dir / "mysuperwhisper.log"
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=1 * 1024 * 1024, backupCount=5, encoding='utf-8'
+    )
+
 file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(log_format)
 logger.addHandler(file_handler)

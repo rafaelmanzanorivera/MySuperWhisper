@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 import tkinter as tk
+import os
 import pystray
 from PIL import Image, ImageDraw
 from .config import log, config, CONFIG_FILE, LOG_FILE, LOG_DIR
@@ -15,10 +16,20 @@ from . import transcription
 
 # Global tray icon instance
 _tray_icon = None
+_tray_status = "loading"
 
 # Callbacks (set by main module)
 _on_quit_callback = None
 _save_config_callback = None
+
+
+def get_tray_availability():
+    """Return whether the current environment can reasonably host the tray."""
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False, "No graphical display session detected"
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        return False, "DBUS_SESSION_BUS_ADDRESS is not set"
+    return True, None
 
 
 def set_callbacks(on_quit, save_config):
@@ -98,6 +109,9 @@ def update_tray(status, level=0.0):
         status: One of 'idle', 'recording', 'processing', 'testing', 'loading'
         level: Audio level for test mode (0.0-1.0)
     """
+    global _tray_status
+    _tray_status = status
+
     if _tray_icon is None:
         return
 
@@ -140,6 +154,11 @@ def update_tray(status, level=0.0):
         _tray_icon.title = prefix + detail
     except Exception:
         pass  # Avoid crashes if icon is being closed
+
+
+def get_tray_status():
+    """Return the last requested tray status."""
+    return _tray_status
 
 
 def _open_file_with_default_app(filepath):
@@ -761,6 +780,10 @@ def create_tray_icon():
         pystray.Icon: The tray icon instance
     """
     global _tray_icon
+
+    available, reason = get_tray_availability()
+    if not available:
+        raise RuntimeError(f"Tray disabled: {reason}")
 
     menu = _create_menu()
     image = _create_image(64, 64, "yellow")  # Yellow for loading

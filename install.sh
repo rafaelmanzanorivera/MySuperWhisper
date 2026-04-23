@@ -68,11 +68,12 @@ install_system_deps() {
             DEPS="$DEPS python3-gi gir1.2-ayatanaappindicator3-0.1 libgirepository1.0-dev"
             # Clipboard
             DEPS="$DEPS xclip xsel"
-            # Typing tool selon la session
-            if [ "$SESSION_TYPE" = "wayland" ]; then
-                DEPS="$DEPS wtype"
-            else
+            # Text injection tools
+            DEPS="$DEPS ydotool"
+            if [ "$SESSION_TYPE" != "wayland" ]; then
                 DEPS="$DEPS xdotool"
+            else
+                DEPS="$DEPS wtype"
             fi
             echo "   Installation via apt..."
             sudo apt update
@@ -83,6 +84,7 @@ install_system_deps() {
             DEPS="$DEPS portaudio-devel libsndfile"
             DEPS="$DEPS python3-gobject gtk3 libappindicator-gtk3"
             DEPS="$DEPS xclip xsel"
+            DEPS="$DEPS ydotool"
             if [ "$SESSION_TYPE" = "wayland" ]; then
                 DEPS="$DEPS wtype"
             else
@@ -96,6 +98,7 @@ install_system_deps() {
             DEPS="$DEPS portaudio libsndfile"
             DEPS="$DEPS python-gobject gtk3 libappindicator-gtk3"
             DEPS="$DEPS xclip xsel"
+            DEPS="$DEPS ydotool"
             if [ "$SESSION_TYPE" = "wayland" ]; then
                 DEPS="$DEPS wtype"
             else
@@ -109,6 +112,7 @@ install_system_deps() {
             DEPS="$DEPS portaudio-devel libsndfile1"
             DEPS="$DEPS python3-gobject gtk3 typelib-1_0-AyatanaAppIndicator3-0_1"
             DEPS="$DEPS xclip xsel"
+            DEPS="$DEPS ydotool"
             if [ "$SESSION_TYPE" = "wayland" ]; then
                 DEPS="$DEPS wtype"
             else
@@ -125,9 +129,11 @@ install_system_deps() {
             echo "   - GTK3, GObject Introspection, AppIndicator"
             echo "   - xclip ou xsel"
             if [ "$SESSION_TYPE" = "wayland" ]; then
-                echo "   - wtype (pour Wayland)"
+                echo "   - ydotool"
+                echo "   - wtype (fallback Wayland clipboard paste)"
             else
                 echo "   - xdotool (pour X11)"
+                echo "   - ydotool"
             fi
             read -p "   Appuyez sur Entrée pour continuer ou Ctrl+C pour annuler..."
             ;;
@@ -236,15 +242,22 @@ echo -e "${BLUE}================================================${NC}"
 echo ""
 echo "Configuration :"
 echo "  - Session     : $SESSION_TYPE"
+echo "  - Injection   : ydotool"
 if [ "$SESSION_TYPE" = "wayland" ]; then
-    echo "  - Outil typing: wtype"
+    echo "  - Fallback    : wtype"
 else
-    echo "  - Outil typing: xdotool"
+    echo "  - Fallback    : xdotool"
 fi
 echo "  - Python      : $PYTHON_EXEC"
 echo ""
 echo "Pour lancer manuellement :"
-echo "  cd $PROJECT_DIR && $PYTHON_EXEC -m mysuperwhisper"
+echo "  $PROJECT_DIR/scripts/run-mysuperwhisper"
+if [ "$SESSION_TYPE" = "wayland" ]; then
+    echo ""
+    echo "Raccourcis GNOME Wayland recommandés :"
+    echo "  - Enregistrement: $PROJECT_DIR/scripts/mysuperwhisper-toggle"
+    echo "  - Historique    : $PROJECT_DIR/scripts/mysuperwhisper-history"
+fi
 echo ""
 echo "Le programme se lancera automatiquement à la prochaine session."
 echo "Il est également disponible dans le menu d'applications."
