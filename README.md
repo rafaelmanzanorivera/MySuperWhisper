@@ -34,6 +34,7 @@ This fork is focused on making the GNOME Wayland path practical:
 - 🧠 **Multiple Models** - Choose from tiny to large-v3 based on your needs
 - 🗣️ **Voice Commands** - Say "new line" or "enter" to control text formatting
 - 📜 **History** - Triple Ctrl opens recent transcriptions for quick re-use
+- 📋 **Clipboard-safe typing** - Direct typing is the default; clipboard paste is optional
 - 🔔 **Notifications** - Audio beeps and system notifications for feedback
 - 🌍 **Multi-language** - Voice commands work in French, English, and Spanish
 - 🖥️ **System Tray** - Easy access to settings and device selection
@@ -50,8 +51,8 @@ This fork is focused on making the GNOME Wayland path practical:
 ### Quick Install (Ubuntu/Debian)
 
 ```bash
-# Clone the repository
-git clone https://github.com/oliviermary/MySuperWhisper.git
+# Clone the Wayland fork
+git clone --branch wayland-gnome-fixes https://github.com/rafaelmanzanorivera/MySuperWhisper.git
 cd MySuperWhisper
 
 # Run the installer
@@ -62,8 +63,8 @@ chmod +x install.sh
 ### Manual Installation
 
 ```bash
-# System dependencies
-sudo apt install python3-venv python3-pip xdotool libnotify-bin pulseaudio-utils
+# System dependencies (python3-tk is required for history and shortcut dialogs)
+sudo apt install python3-venv python3-pip python3-tk xdotool libnotify-bin pulseaudio-utils
 
 # For reliable Linux text injection
 sudo apt install ydotool
@@ -85,7 +86,7 @@ If your NVIDIA driver is installed but `faster-whisper` fails on missing `libcub
 ./venv/bin/pip install 'nvidia-cublas-cu12' 'nvidia-cudnn-cu12==9.*'
 ```
 
-MySuperWhisper now auto-detects and preloads those venv-local CUDA libraries on startup, so this does not require changing your system-wide CUDA installation or exporting `LD_LIBRARY_PATH` manually.
+MySuperWhisper auto-detects and preloads those venv-local CUDA libraries on startup. It also searches older Python-versioned site-packages directories inside the same venv, which helps when the venv survives a Python minor-version upgrade. This does not change the system-wide CUDA installation.
 
 ## Usage
 
@@ -171,6 +172,7 @@ On GNOME Wayland, use the command-based shortcuts shown above instead of the bui
 
 Right-click the tray icon to access:
 - Enable/disable notifications
+- Toggle clipboard paste for applications that need clipboard-based insertion
 - Configure keyboard shortcuts
 - View transcription history
 - Test microphone with audio loopback
@@ -215,6 +217,17 @@ Result: Types "Hello", creates a new line, types "How are you", then presses Ent
 
 > **Note**: In standard applications, "new line" uses `Shift+Enter` (soft line break). In **terminal emulators**, it intelligently switches to `Ctrl+Shift+V` to paste the text with actual newlines, ensuring correct behavior.
 
+### Paste behavior
+
+The tray option **Use clipboard to paste** controls text insertion:
+
+| Mode | Setting | How it works |
+|------|---------|--------------|
+| Direct typing (default) | `false` | Uses `ydotool` when available, then `wtype` on Wayland or `xdotool` on X11. Leaves the clipboard untouched. |
+| Clipboard paste | `true` | Copies the text and sends `Ctrl+V`, or `Ctrl+Shift+V` for detected terminals. Useful for applications that need clipboard-based Unicode input. |
+
+Direct typing is usually the best fit for GNOME Wayland. Turn on clipboard paste from the tray menu when an application does not accept injected text.
+
 ## Configuration
 
 Configuration is stored in `~/.config/mysuperwhisper/config.json`:
@@ -231,7 +244,8 @@ Configuration is stored in `~/.config/mysuperwhisper/config.json`:
     "input_device": "Your Microphone",
     "output_device": "Your Speakers",
     "system_notifications_enabled": true,
-    "sound_notifications_enabled": true
+    "sound_notifications_enabled": true,
+    "use_clipboard_to_paste": false
 }
 ```
 
@@ -252,6 +266,7 @@ This example configures:
 - **input_device** / **output_device**: Audio device names (set via tray menu)
 - **system_notifications_enabled**: Show desktop notifications
 - **sound_notifications_enabled**: Play audio beeps
+- **use_clipboard_to_paste**: Use the clipboard for insertion instead of direct typing
 
 **Tip:** You can configure keyboard shortcuts easily through the system tray menu under "⌨️ Keyboard Shortcuts" — a detection popup lets you set shortcuts by simply pressing them, no manual editing needed.
 
@@ -324,7 +339,8 @@ MySuperWhisper/
 ### Text not typed in some applications
 - Some applications may not accept simulated keyboard input
 - On Linux, `ydotool` is the preferred text injection backend and works better on Wayland than clipboard-driven paste
-- **Workaround:** The transcribed text is **always copied to your clipboard**. If automated typing fails, you can simply paste it manually (Ctrl+V).
+- Turn on **Use clipboard to paste** in the tray menu for applications that need clipboard-based insertion
+- If direct typing fails, the app reports the failure and leaves the clipboard unchanged
 
 ### CUDA loads but transcription fails on missing `libcublas.so.12`
 - Install the venv-local CUDA runtime:

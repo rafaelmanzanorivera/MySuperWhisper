@@ -139,6 +139,9 @@ class Config:
         self.sound_notifications_enabled = True
         self.input_device = None
         self.output_device = None
+        # When True, paste via the system clipboard (Ctrl+V). When False (default),
+        # type the text directly so the clipboard and its history stay untouched.
+        self.use_clipboard_to_paste = False
 
         # Hotkey configuration
         self.record_hotkey = "ctrl_l"  # Key for recording: "ctrl_l", "alt_r", "ctrl_r", etc.
@@ -161,6 +164,7 @@ class Config:
                 self.sound_notifications_enabled = data.get("sound_notifications_enabled", True)
                 self.input_device = data.get("input_device")
                 self.output_device = data.get("output_device")
+                self.use_clipboard_to_paste = data.get("use_clipboard_to_paste", False)
 
                 # Hotkey configuration
                 self.record_hotkey = data.get("record_hotkey", "ctrl_l")
@@ -175,7 +179,8 @@ class Config:
 
                 # Check if new fields are missing (for config migration)
                 if ("language" not in data or "task" not in data or
-                    "record_hotkey" not in data or "record_press_count" not in data):
+                    "record_hotkey" not in data or "record_press_count" not in data or
+                    "use_clipboard_to_paste" not in data):
                     log("Updating config file with new fields")
                     needs_save = True
             else:
@@ -200,6 +205,7 @@ class Config:
                 "sound_notifications_enabled": self.sound_notifications_enabled,
                 "input_device": self.input_device,
                 "output_device": self.output_device,
+                "use_clipboard_to_paste": self.use_clipboard_to_paste,
                 "record_hotkey": self.record_hotkey,
                 "record_press_count": self.record_press_count,
                 "history_hotkey": self.history_hotkey,

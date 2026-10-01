@@ -62,6 +62,8 @@ install_system_deps() {
         apt)
             # Dépendances de base
             DEPS="python3 python3-pip python3-venv python3-dev"
+            # GUI (tkinter pour la popup historique et la config raccourcis)
+            DEPS="$DEPS python3-tk"
             # Audio
             DEPS="$DEPS portaudio19-dev libsndfile1"
             # GTK/Tray
@@ -81,6 +83,7 @@ install_system_deps() {
             ;;
         dnf)
             DEPS="python3 python3-pip python3-devel"
+            DEPS="$DEPS python3-tkinter"
             DEPS="$DEPS portaudio-devel libsndfile"
             DEPS="$DEPS python3-gobject gtk3 libappindicator-gtk3"
             DEPS="$DEPS xclip xsel"
@@ -95,6 +98,7 @@ install_system_deps() {
             ;;
         pacman)
             DEPS="python python-pip"
+            DEPS="$DEPS tk"
             DEPS="$DEPS portaudio libsndfile"
             DEPS="$DEPS python-gobject gtk3 libappindicator-gtk3"
             DEPS="$DEPS xclip xsel"
@@ -109,6 +113,7 @@ install_system_deps() {
             ;;
         zypper)
             DEPS="python3 python3-pip python3-devel"
+            DEPS="$DEPS python3-tk"
             DEPS="$DEPS portaudio-devel libsndfile1"
             DEPS="$DEPS python3-gobject gtk3 typelib-1_0-AyatanaAppIndicator3-0_1"
             DEPS="$DEPS xclip xsel"
